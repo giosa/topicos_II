@@ -23,6 +23,8 @@ def parse_arguments():
                         help='Nombre del experimento en MLflow')
     parser.add_argument('--cv_splits', type=int, default=5,
                         help='Número de folds para cross-validation')
+    parser.add_argument('--compare_models', action='store_true',
+                        help='Comparar múltiples modelos antes de entrenar el final')
     
     return parser.parse_args()
 
@@ -50,9 +52,18 @@ def main():
         print(f"   • Features: {feature_cols}")
         print(f"   • Clases: {y_train.unique()}")
         
-        # ===== 2. ENTRENAMIENTO DEL MODELO =====
-        print("\n[2/4] 🤖 ENTRENANDO MODELO (GridSearchCV)...")
+        # ===== 2. COMPARACIÓN DE MODELOS (OPCIONAL) =====
         trainer = ModelTrainer(experiment_name=args.experiment_name)
+        
+        if args.compare_models:
+            print("\n[2/4] 🔬 COMPARANDO MÚLTIPLES MODELOS...")
+            comparison_results = trainer.compare_multiple_models(X_train, y_train)
+            print(f"✅ Comparación completada. Mejor modelo: {comparison_results.iloc[0]['Model']}")
+            print(f"   • AUC: {comparison_results.iloc[0]['CV_AUC_Mean']:.4f}")
+            print(f"   • Tiempo: {comparison_results.iloc[0]['Train_Time_Seconds']:.2f}s")
+        
+        # ===== 3. ENTRENAMIENTO DEL MODELO FINAL =====
+        print("\n[3/4] 🤖 ENTRENANDO MODELO FINAL (GridSearchCV)...")
         
         best_model, best_params, best_score = trainer.train_with_gridsearch(
             X_train=X_train,
@@ -64,16 +75,16 @@ def main():
         print(f"   • Mejor AUC (CV): {best_score:.4f}")
         print(f"   • Mejores parámetros: {best_params}")
         
-        # ===== 3. PREDICCIÓN =====
-        print("\n[3/4] 🔮 GENERANDO PREDICCIONES...")
+        # ===== 4. PREDICCIÓN =====
+        print("\n[4/4] 🔮 GENERANDO PREDICCIONES...")
         predictions = trainer.predict_test_set(
             model=best_model,
             X_test=X_test,
             return_proba=True
         )
         
-        # ===== 4. CREAR SUBMISSION =====
-        print("\n[4/4] 💾 CREANDO ARCHIVO DE SUBMISSION...")
+        # ===== 5. CREAR SUBMISSION =====
+        print("\n[5/5] 💾 CREANDO ARCHIVO DE SUBMISSION...")
         submission_df = trainer.create_submission(
             predictions=predictions,
             test_df=processor.test_df,
@@ -84,9 +95,11 @@ def main():
         print("\n" + "=" * 60)
         print("✅ PIPELINE COMPLETADO EXITOSAMENTE")
         print("=" * 60)
+        if args.compare_models:
+            print(f"📊 Comparación de modelos: 7 modelos evaluados")
         print(f"📁 Archivos generados:")
         print(f"   • submission_final.csv (listo para Kaggle)")
-        print(f"\n📊 Resumen del modelo:")
+        print(f"\n📊 Resumen del modelo final:")
         print(f"   • Features utilizadas: {len(feature_cols)}")
         print(f"   • Mejor AUC (CV): {best_score:.4f}")
         print(f"   • Predicciones: {len(predictions)} muestras")

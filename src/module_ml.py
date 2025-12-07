@@ -14,6 +14,15 @@ from sklearn.metrics import roc_auc_score, accuracy_score, classification_report
 import warnings
 warnings.filterwarnings('ignore')
 
+# Faltan estos imports:
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import cross_val_score
+
+
 class ModelTrainer:
     """Clase para entrenamiento y evaluación de modelos WIDS 2024"""
     
@@ -206,3 +215,96 @@ class ModelTrainer:
             pass
         
         return submission
+    
+
+    def compare_multiple_models(self, X_train, y_train, X_val=None, y_val=None):
+            """
+            Compara múltiples algoritmos de clasificación como pide la actividad
+            
+            Args:
+                X_train, y_train: Datos de entrenamiento
+                X_val, y_val: Datos de validación (opcional)
+                
+            Returns:
+                pd.DataFrame: Resultados de comparación
+            """
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.ensemble import RandomForestClassifier
+            from sklearn.naive_bayes import GaussianNB
+            from sklearn.neighbors import KNeighborsClassifier
+            from sklearn.neural_network import MLPClassifier
+            from sklearn.model_selection import cross_val_score
+            import time
+            
+            # Definir los 6 modelos de la actividad + AdaBoost
+            models = {
+                'Logistic Regression': LogisticRegression(max_iter=1000, random_state=42),
+                'Decision Tree': DecisionTreeClassifier(random_state=42),
+                'Random Forest': RandomForestClassifier(n_estimators=100, random_state=42),
+                'Naive Bayes': GaussianNB(),
+                'KNN': KNeighborsClassifier(n_neighbors=5),
+                'MLP': MLPClassifier(hidden_layer_sizes=(100,), max_iter=1000, random_state=42),
+                'AdaBoost': AdaBoostClassifier(n_estimators=100, random_state=42)
+            }
+            
+            results = []
+            
+            # Iniciar run de MLflow para la comparación
+            with mlflow.start_run(run_name="model_comparison"):
+                
+                for name, model in models.items():
+                    print(f"\n🔍 Evaluando {name}...")
+                    
+                    # Medir tiempo de entrenamiento
+                    start_time = time.time()
+                    
+                    # 5-fold cross validation con AUC
+                    cv_scores = cross_val_score(model, X_train, y_train, 
+                                            cv=5, scoring='roc_auc', n_jobs=-1)
+                    
+                    train_time = time.time() - start_time
+                    
+                    # Entrenar para predicción si hay validation set
+                    if X_val is not None and y_val is not None:
+                        model.fit(X_train, y_train)
+                        y_pred_proba = model.predict_proba(X_val)[:, 1]
+                        val_auc = roc_auc_score(y_val, y_pred_proba)
+                    else:
+                        val_auc = None
+                    
+                    # Guardar resultados
+                    results.append({
+                        'Model': name,
+                        'CV_AUC_Mean': cv_scores.mean(),
+                        'CV_AUC_Std': cv_scores.std(),
+                        'Validation_AUC': val_auc,
+                        'Train_Time_Seconds': train_time,
+                        'Parameters': str(model.get_params())[:100] + "..."  # Resumido
+                    })
+                    
+                    # Loggear en MLflow
+                    mlflow.log_metric(f"{name}_CV_AUC", cv_scores.mean())
+                    mlflow.log_metric(f"{name}_CV_AUC_Std", cv_scores.std())
+                    mlflow.log_metric(f"{name}_Train_Time", train_time)
+                    if val_auc:
+                        mlflow.log_metric(f"{name}_Val_AUC", val_auc)
+                    
+                    print(f"   • CV AUC: {cv_scores.mean():.4f} (±{cv_scores.std():.4f})")
+                    print(f"   • Tiempo: {train_time:.2f}s")
+                
+                mlflow.log_param("models_tested", list(models.keys()))
+                mlflow.log_param("total_models", len(models))
+            
+            # Crear DataFrame de resultados
+            results_df = pd.DataFrame(results)
+            results_df = results_df.sort_values('CV_AUC_Mean', ascending=False)
+            
+            # Mostrar resumen
+            print("\n" + "="*60)
+            print("📊 RESUMEN DE COMPARACIÓN DE MODELOS")
+            print("="*60)
+            print(results_df[['Model', 'CV_AUC_Mean', 'CV_AUC_Std', 'Train_Time_Seconds']].to_string())
+            print("\n🏆 MEJOR MODELO:", results_df.iloc[0]['Model'])
+            print(f"   AUC: {results_df.iloc[0]['CV_AUC_Mean']:.4f}")
+            
+            return results_df
